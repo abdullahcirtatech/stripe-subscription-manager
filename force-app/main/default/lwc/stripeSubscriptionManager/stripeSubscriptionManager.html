@@ -1,0 +1,931 @@
+<template>
+    <lightning-card>
+        <div class="workspace">
+            <template if:true={shouldShowInitialLoader}>
+                <div class="initial-loader">
+                    <lightning-spinner alternative-text="Loading schedule" size="medium"></lightning-spinner>
+                    <p>Loading schedule...</p>
+                </div>
+            </template>
+
+            <template if:false={shouldShowInitialLoader}>
+            <template if:true={showOverlayBusySpinner}>
+                <lightning-spinner alternative-text="Working" size="small"></lightning-spinner>
+            </template>
+
+            <template if:true={shouldShowContactContext}>
+            <header class="topbar">
+                <div>
+                    <p class="eyebrow">Stripe Customer</p>
+                    <p class="customer-name">{customerNameDisplay}</p>
+                    <p class="customer-id">{customerDisplay}</p>
+                </div>
+                <lightning-button-icon
+                    icon-name="utility:refresh"
+                    alternative-text="Refresh"
+                    title="Refresh"
+                    onclick={handleRefresh}
+                    disabled={isBusy}>
+                </lightning-button-icon>
+            </header>
+            </template>
+
+            <template if:true={shouldShowContactContext}>
+            <section class="section">
+                <div class="section-heading">
+                    <div>
+                        <h3>Payment Methods</h3>
+                        <p>Cards saved on this Stripe customer.</p>
+                    </div>
+                    <lightning-button
+                        label="Add Payment Method"
+                        variant="brand"
+                        onclick={openAddPaymentMethod}
+                        disabled={isBusy}>
+                    </lightning-button>
+                </div>
+
+                <template if:true={hasPaymentMethods}>
+                    <div class="method-grid">
+                        <template for:each={paymentMethods} for:item="pm">
+                            <div key={pm.id} class={pm.tileClass}>
+                                <button class="method-select" data-pmid={pm.id} onclick={handleSelectPaymentMethod} disabled={isBusy}>
+                                    <span class="card-brand">{pm.brandLabel}</span>
+                                    <span class="card-number">**** {pm.last4}</span>
+                                    <span class="card-meta">Exp {pm.expMonth}/{pm.expYear}</span>
+                                    <span class="card-id">{pm.id}</span>
+                                    <template if:true={pm.isDefault}>
+                                        <span class="badge">Default</span>
+                                    </template>
+                                </button>
+                                <lightning-button-icon
+                                    class="method-remove"
+                                    icon-name="utility:delete"
+                                    alternative-text="Remove payment method"
+                                    title="Remove payment method"
+                                    data-pmid={pm.id}
+                                    onclick={openPaymentMethodDeleteConfirm}
+                                    disabled={isBusy}>
+                                </lightning-button-icon>
+                                <template if:false={pm.isDefault}>
+                                    <lightning-button
+                                        class="method-default"
+                                        label="Set Default"
+                                        data-pmid={pm.id}
+                                        onclick={openSetDefaultPaymentMethodConfirm}
+                                        disabled={isBusy}>
+                                    </lightning-button>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
+                <template if:false={hasPaymentMethods}>
+                    <div class="empty-state">No saved payment methods yet.</div>
+                </template>
+            </section>
+            </template>
+
+            <template if:true={shouldShowContactContext}>
+            <section class="split single">
+                <section class="schedule-shell create-shell">
+                    <header class="schedule-header">
+                        <div class="schedule-record">
+                            <div class="schedule-icon" aria-hidden="true">&#9829;</div>
+                            <div>
+                                <p class="schedule-kicker">Stripe Subscription</p>
+                                <h2>New Subscription</h2>
+                            </div>
+                        </div>
+                        <div class="schedule-title">Create Subscription</div>
+                        <span></span>
+                    </header>
+
+                    <div class="wizard">
+                        <div class={createStepOneClass}><span>1</span><p>Details</p></div>
+                        <div class={createStepTwoClass}><span>2</span><p>Confirm</p></div>
+                        <div class={createStepThreeClass}><span>3</span><p>Processing</p></div>
+                        <div class={createStepFourClass}><span>4</span><p>Success</p></div>
+                    </div>
+
+                    <template if:true={showCreateFormStep}>
+                        <div class="schedule-card">
+                            <h3>Create subscription</h3>
+                            <p class="modal-copy">Create a recurring charge using the selected card.</p>
+                            <div class="form-grid create-form-grid">
+                                <lightning-input type="number" min="1" step="0.01" label="Amount" value={amount} onchange={onAmount} disabled={isBusy} required></lightning-input>
+                                <lightning-combobox label="Installment Period" value={installmentPeriod} options={installmentPeriodOptions} onchange={onInstallmentPeriod} disabled={isBusy} required></lightning-combobox>
+                                <lightning-combobox label="Gift Type" value={createRecurringType} options={recurringTypeOptions} onchange={onCreateRecurringType} disabled={isBusy} required></lightning-combobox>
+                                <template if:true={isCreateFixedType}>
+                                    <lightning-input type="number" min="1" step="1" label="Fixed Number of Gifts" value={createInstallments} onchange={onCreateInstallments} disabled={isBusy} required></lightning-input>
+                                </template>
+                                <lightning-input type="date" label="Start Date" value={startDate} onchange={onStartDate} disabled={isBusy} required></lightning-input>
+                                <lightning-record-picker
+                                    label="GAU Allocation"
+                                    object-api-name="npsp__General_Accounting_Unit__c"
+                                    value={selectedGauId}
+                                    onchange={onSelectedGau}
+                                    required
+                                    disabled={isBusy}>
+                                </lightning-record-picker>
+                            </div>
+                            <div class="selected-method">
+                                <span>Payment Method *</span>
+                                <strong>{selectedPaymentMethodLabel}</strong>
+                            </div>
+                            <footer class="schedule-footer">
+                                <span></span>
+                                <lightning-button
+                                    label="Next"
+                                    variant="brand"
+                                    onclick={handleCreateSubscription}
+                                    disabled={disableCreateSubscription}>
+                                </lightning-button>
+                            </footer>
+                        </div>
+                    </template>
+
+                    <template if:true={showCreateConfirmStep}>
+                        <div class="schedule-card confirm-card">
+                            <h3>Create Subscription</h3>
+                            <div class="confirm-icon success-icon">&#10003;</div>
+                            <p>Confirm creating this Stripe subscription.</p>
+                            <dl class="confirm-list create-confirm-list">
+                                <div><dt>Amount</dt><dd>USD {createConfirmAmountLabel}</dd></div>
+                                <div><dt>Installment Period</dt><dd>{createConfirmCadenceLabel}</dd></div>
+                                <div><dt>Gift Type</dt><dd>{createConfirmGiftTypeLabel}</dd></div>
+                                <div><dt>Start Date</dt><dd>{createConfirmStartDateLabel}</dd></div>
+                                <div><dt>GAU</dt><dd>{createConfirmGauLabel}</dd></div>
+                                <div><dt>Payment Method</dt><dd>{selectedPaymentMethodLabel}</dd></div>
+                            </dl>
+                            <footer class="schedule-footer">
+                                <lightning-button label="Back" onclick={closeCreateConfirm} disabled={isBusy}></lightning-button>
+                                <lightning-button label="Create Subscription" variant="brand" onclick={confirmCreateSubscription} disabled={isBusy}></lightning-button>
+                            </footer>
+                        </div>
+                    </template>
+
+                    <template if:true={showCreateProcessingStep}>
+                        <div class="schedule-card processing-card">
+                            <lightning-spinner alternative-text="Creating subscription" size="medium"></lightning-spinner>
+                            <p>Creating subscription...</p>
+                            <p>Please wait.</p>
+                        </div>
+                    </template>
+
+                    <template if:true={showCreateSuccessStep}>
+                        <div class="schedule-card">
+                            <h3>Subscription created</h3>
+                            <p>The subscription has been created and the form is ready for another donation.</p>
+                            <footer class="schedule-footer">
+                                <span></span>
+                                <lightning-button label="Create another subscription" onclick={closeCreateConfirm}></lightning-button>
+                            </footer>
+                        </div>
+                    </template>
+                </section>
+            </section>
+            </template>
+
+            <template if:true={shouldShowRecurringDonationContext}>
+            <section class="rd-shell">
+                <header class="rd-header">
+                    <div class="rd-header-main">
+                        <div class="rd-heart" aria-hidden="true">&#9829;</div>
+                        <div class="rd-header-text">
+                            <p class="rd-eyebrow">Recurring donation</p>
+                            <div class="rd-title-row">
+                                <h2 class="rd-title">{recurringHeaderName} &middot; {recurringHeaderSummary}</h2>
+                                <span class={recurringStatusBadgeClass}>{recurringStatusBadgeLabel}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="rd-header-meta">
+                        <template if:true={isSyncedWithStripe}>
+                            <span class="rd-synced">
+                                <lightning-icon icon-name="utility:sync" size="xx-small"></lightning-icon>
+                                Synced with Stripe
+                            </span>
+                        </template>
+                        <div class="rd-header-icons">
+                            <lightning-button-icon
+                                class="rd-ghost-icon"
+                                icon-name="utility:refresh"
+                                variant="bare"
+                                alternative-text="Refresh from Stripe"
+                                title="Re-check Stripe to confirm this is up to date. Safe to press."
+                                onclick={handleRefresh}
+                                disabled={isBusy}>
+                            </lightning-button-icon>
+                            <lightning-button-icon
+                                class="rd-ghost-icon"
+                                icon-name="utility:close"
+                                variant="bare"
+                                alternative-text="Close"
+                                title="Close"
+                                onclick={handleClose}>
+                            </lightning-button-icon>
+                        </div>
+                    </div>
+                </header>
+
+                <template if:true={showActionPanel}>
+                    <div class="wizard">
+                        <div class={wizardStepOneClass}><span>1</span><p>Current schedule</p></div>
+                        <div class={wizardStepTwoClass}><span>2</span><p>Update</p></div>
+                        <div class={wizardStepThreeClass}><span>3</span><p>Confirm</p></div>
+                        <div class={wizardStepFourClass}><span>4</span><p>Processing</p></div>
+                    </div>
+                </template>
+
+                <template if:true={showScheduleSummary}>
+                    <div class="rd-body">
+                        <div class="rd-stats">
+                            <div class="rd-stat">
+                                <p class="rd-stat-label">
+                                    Total given
+                                    <lightning-helptext content={totalGivenTooltip}></lightning-helptext>
+                                </p>
+                                <p class="rd-stat-value">{recurringTotalGivenLabel}</p>
+                            </div>
+                            <div class="rd-stat">
+                                <p class="rd-stat-label">Installments to date</p>
+                                <p class="rd-stat-value">{recurringGiftsToDateLabel}</p>
+                            </div>
+                            <div class="rd-stat">
+                                <p class="rd-stat-label">Started</p>
+                                <p class="rd-stat-value">{recurringStartedLabel}</p>
+                            </div>
+                            <div class="rd-stat rd-stat--accent">
+                                <p class="rd-stat-label">Next charge</p>
+                                <p class="rd-stat-value">{recurringNextChargeLabel}</p>
+                            </div>
+                        </div>
+
+                        <template if:true={isRecurringPaused}>
+                            <p class="state-note">Paused until {recurringPausedUntilLabel}.</p>
+                        </template>
+                        <template if:true={isRecurringClosed}>
+                            <p class="state-note">{recurringClosedDetail}</p>
+                        </template>
+
+                        <section class="rd-section">
+                            <div class="rd-section-head">
+                                <h3>Recurring installment</h3>
+                            </div>
+                            <dl class="rd-list">
+                                <div class="rd-list-row">
+                                    <template if:false={editingAmount}>
+                                        <template if:true={giftRowsEditable}>
+                                            <div class="rd-row-display rd-row-clickable" role="button" tabindex="0" data-edit="amount" aria-label={amountRowAriaLabel} onclick={startEditAmount} onkeydown={onRowKeydown}>
+                                                <dt>Amount</dt>
+                                                <dd class="rd-row-value">
+                                                    <span>{recurringSummaryAmountLabel}</span>
+                                                    <lightning-icon class="rd-edit-pencil" icon-name="utility:edit" size="xx-small" aria-hidden="true"></lightning-icon>
+                                                </dd>
+                                            </div>
+                                        </template>
+                                        <template if:false={giftRowsEditable}>
+                                            <div class="rd-row-display">
+                                                <dt>Amount</dt>
+                                                <dd class="rd-row-value"><span>{recurringSummaryAmountLabel}</span></dd>
+                                            </div>
+                                        </template>
+                                    </template>
+                                    <template if:true={editingAmount}>
+                                        <dt>Amount</dt>
+                                        <dd class="rd-row-edit">
+                                            <lightning-input type="number" formatter="currency" min="1" step="0.01" label="New amount" value={actionAmount} onchange={onActionAmount} disabled={isBusy}></lightning-input>
+                                            <p class="rd-edit-help">{amountEditHelp}</p>
+                                            <div class="info-callout rd-edit-note">{inlineAmountPreview}</div>
+                                            <div class="rd-edit-actions">
+                                                <lightning-button label="Cancel" onclick={cancelInlineEdit} disabled={isBusy}></lightning-button>
+                                                <lightning-button variant="brand" label="Save" onclick={saveAmountInline} disabled={disableAmountSave}></lightning-button>
+                                            </div>
+                                        </dd>
+                                    </template>
+                                </div>
+
+                                <div class="rd-list-row">
+                                    <template if:false={editingFrequency}>
+                                        <template if:true={giftRowsEditable}>
+                                            <div class="rd-row-display rd-row-clickable" role="button" tabindex="0" data-edit="frequency" aria-label={frequencyRowAriaLabel} onclick={startEditFrequency} onkeydown={onRowKeydown}>
+                                                <dt>Frequency</dt>
+                                                <dd class="rd-row-value">
+                                                    <span>{recurringSummaryFrequencyLabel}</span>
+                                                    <lightning-icon class="rd-edit-pencil" icon-name="utility:edit" size="xx-small" aria-hidden="true"></lightning-icon>
+                                                </dd>
+                                            </div>
+                                        </template>
+                                        <template if:false={giftRowsEditable}>
+                                            <div class="rd-row-display">
+                                                <dt>Frequency</dt>
+                                                <dd class="rd-row-value"><span>{recurringSummaryFrequencyLabel}</span></dd>
+                                            </div>
+                                        </template>
+                                    </template>
+                                    <template if:true={editingFrequency}>
+                                        <dt>Frequency</dt>
+                                        <dd class="rd-row-edit">
+                                            <div class="rd-freq-edit">
+                                                <span class="rd-freq-prefix">Every</span>
+                                                <lightning-combobox label="How often" variant="label-hidden" value={editFrequencyCount} options={editFrequencyCountOptions} onchange={onEditFrequencyCount} disabled={isBusy}></lightning-combobox>
+                                                <lightning-combobox label="Unit" variant="label-hidden" value={editFrequencyUnit} options={editFrequencyUnitOptions} onchange={onEditFrequencyUnit} disabled={isBusy}></lightning-combobox>
+                                            </div>
+                                            <p class="rd-edit-help">{frequencyEditHelp}</p>
+                                            <div class="warning-callout rd-edit-note">{inlineFrequencyWarning}</div>
+                                            <div class="rd-edit-actions">
+                                                <lightning-button label="Cancel" onclick={cancelInlineEdit} disabled={isBusy}></lightning-button>
+                                                <lightning-button variant="brand" label="Save" onclick={saveFrequencyInline} disabled={disableFrequencySave}></lightning-button>
+                                            </div>
+                                        </dd>
+                                    </template>
+                                </div>
+
+                                <div class="rd-list-row">
+                                    <template if:false={editingGiftDay}>
+                                        <template if:true={canEditGiftDay}>
+                                            <div class="rd-row-display rd-row-clickable" role="button" tabindex="0" data-edit="giftDay" aria-label={giftDayRowAriaLabel} onclick={startEditGiftDay} onkeydown={onRowKeydown}>
+                                                <dt>Next installment date</dt>
+                                                <dd class="rd-row-value">
+                                                    <span>{recurringSummaryNextGiftDateLabel}</span>
+                                                    <lightning-icon class="rd-edit-pencil" icon-name="utility:edit" size="xx-small" aria-hidden="true"></lightning-icon>
+                                                </dd>
+                                            </div>
+                                        </template>
+                                        <template if:false={canEditGiftDay}>
+                                            <div class="rd-row-display">
+                                                <dt>Next installment date</dt>
+                                                <dd class="rd-row-value"><span>{recurringSummaryNextGiftDateLabel}</span></dd>
+                                            </div>
+                                        </template>
+                                    </template>
+                                    <template if:true={editingGiftDay}>
+                                        <dt>Next installment date</dt>
+                                        <dd class="rd-row-edit">
+                                            <lightning-combobox label="Day of month" value={actionDayOfMonth} options={dayOfMonthOptions} onchange={onActionDayOfMonth} disabled={isBusy} required></lightning-combobox>
+                                            <p class="rd-edit-help">{giftDayEditHelp}</p>
+                                            <div class="info-callout rd-edit-note">{inlineGiftDayNote}</div>
+                                            <div class="rd-edit-actions">
+                                                <lightning-button label="Cancel" onclick={cancelInlineEdit} disabled={isBusy}></lightning-button>
+                                                <lightning-button variant="brand" label="Save" onclick={saveGiftDayInline} disabled={disableGiftDateSave}></lightning-button>
+                                            </div>
+                                        </dd>
+                                    </template>
+                                </div>
+                            </dl>
+                        </section>
+
+                        <section class="rd-section">
+                            <div class="rd-section-head">
+                                <h3>Payment method</h3>
+                                <div class="rd-section-actions">
+                                    <template if:true={giftRowsEditable}>
+                                        <template if:false={editingPaymentMethod}>
+                                            <lightning-button class="rd-link-button" variant="base" label="Update payment method" onclick={startEditPaymentMethod} disabled={isBusy}></lightning-button>
+                                        </template>
+                                    </template>
+                                </div>
+                            </div>
+                            <template if:false={editingPaymentMethod}>
+                                <div class="rd-pm-card">
+                                    <div class="rd-pm-icon" aria-hidden="true">&#128179;</div>
+                                    <div class="rd-pm-text">{recurringSummaryPaymentMethodLabel}</div>
+                                </div>
+                            </template>
+                            <template if:true={editingPaymentMethod}>
+                                <div class="rd-pm-edit">
+                                    <template if:false={addingNewCard}>
+                                        <template if:true={hasSavedPaymentMethods}>
+                                            <lightning-combobox label="Saved payment methods" value={actionPaymentMethodId} options={paymentMethodSelectionOptions} onchange={onActionPaymentMethod} disabled={isBusy}></lightning-combobox>
+                                        </template>
+                                        <lightning-button class="rd-link-button" variant="base" label="Add new card" onclick={startAddNewCard} disabled={isBusy}></lightning-button>
+                                    </template>
+                                    <template if:true={addingNewCard}>
+                                        <div class="rd-pm-element">
+                                            <div class="rd-pm-element-host" lwc:dom="manual"></div>
+                                            <div class="rd-pm-address-host" lwc:dom="manual"></div>
+                                        </div>
+                                        <template if:true={hasSavedPaymentMethods}>
+                                            <lightning-button class="rd-link-button" variant="base" label="Use a saved card instead" onclick={cancelAddNewCard} disabled={isSavingCard}></lightning-button>
+                                        </template>
+                                    </template>
+                                    <div class="rd-edit-actions">
+                                        <lightning-button label="Cancel" onclick={cancelInlineEdit} disabled={isSavingCard}></lightning-button>
+                                        <lightning-button variant="brand" label={paymentMethodSaveLabel} onclick={savePaymentMethodInline} disabled={disablePaymentMethodInlineSave}></lightning-button>
+                                    </div>
+                                </div>
+                            </template>
+                        </section>
+
+                        <template if:true={showManageStatusActions}>
+                            <div class="rd-manage">
+                                <template if:true={showManageButtons}>
+                                    <div class="rd-manage-actions">
+                                        <template if:true={activeScheduleActionsVisible}>
+                                            <lightning-button label="Pause Recurring Donation" onclick={startEditPause} disabled={isBusy}></lightning-button>
+                                            <lightning-button class="destructive-action" label="Cancel donation" variant="destructive-text" onclick={startEditCancel} disabled={isBusy}></lightning-button>
+                                        </template>
+                                        <template if:true={pendingScheduleActionsVisible}>
+                                            <lightning-button class="destructive-action" label="Cancel replacement" variant="destructive-text" onclick={startEditCancel} disabled={isBusy}></lightning-button>
+                                        </template>
+                                        <template if:true={pausedScheduleActionsVisible}>
+                                            <lightning-button variant="brand" label="Resume donations" onclick={openResumeAction} disabled={isBusy}></lightning-button>
+                                            <lightning-button class="destructive-action" label="Cancel donation" variant="destructive-text" onclick={startEditCancel} disabled={isBusy}></lightning-button>
+                                        </template>
+                                    </div>
+                                </template>
+                                <template if:true={editingPause}>
+                                    <div class="rd-inline-pause">
+                                        <h4 class="rd-inline-pause-title">Pause Recurring Donation</h4>
+                                        <lightning-radio-group label="Pause" variant="label-hidden" value={pauseMode} options={pauseModeOptions} onchange={onPauseMode} disabled={isBusy}></lightning-radio-group>
+                                        <template if:true={isPauseForGifts}>
+                                            <lightning-combobox label="Number of installments to pause" value={pauseGiftCount} options={pauseGiftCountOptions} onchange={onPauseGiftCount} disabled={isBusy}></lightning-combobox>
+                                        </template>
+                                        <template if:true={isPauseUntilDate}>
+                                            <lightning-input type="date" label="Resume on a specific date" value={pauseResumeDate} min={minimumPauseResumeDate} onchange={onPauseResumeDate} disabled={isBusy} required></lightning-input>
+                                        </template>
+                                        <div class="info-callout rd-edit-note">Resumes {pauseResumeDateLabel}. No charges until then.</div>
+                                        <div class="rd-edit-actions">
+                                            <lightning-button label="Cancel" onclick={cancelInlineEdit} disabled={isBusy}></lightning-button>
+                                            <lightning-button variant="brand" label="Pause Recurring Donation" onclick={savePauseInline} disabled={disablePauseConfirm}></lightning-button>
+                                        </div>
+                                    </div>
+                                </template>
+                                <template if:true={editingCancel}>
+                                    <div class="rd-inline-pause">
+                                        <h4 class="rd-inline-pause-title">{cancelEditorTitle}</h4>
+                                        <lightning-combobox label="Reason (optional)" value={selectedCloseReason} options={closeReasonOptions} onchange={onSelectedCloseReason} disabled={isBusy}></lightning-combobox>
+                                        <div class="warning-callout rd-edit-note">{cancelConfirmMessage}</div>
+                                        <div class="rd-edit-actions">
+                                            <lightning-button label="Keep donation" onclick={cancelInlineEdit} disabled={isBusy}></lightning-button>
+                                            <lightning-button class="destructive-action" variant="destructive" label={cancelEditorTitle} onclick={saveCancelInline} disabled={disableCancelConfirm}></lightning-button>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
+                <template if:true={showUpdateStep}>
+                    <div class="schedule-card">
+                        <h3>{actionTitle}</h3>
+                        <template if:true={isAmountAction}>
+                            <p>{currentAmountSentence}</p>
+                            <lightning-input type="number" formatter="currency" min="1" step="0.01" label="New amount" value={actionAmount} onchange={onActionAmount} disabled={isBusy}></lightning-input>
+                        </template>
+                        <template if:true={isFrequencyAction}>
+                            <div class="form-grid">
+                                <lightning-combobox label="Frequency" value={actionInstallmentPeriod} options={installmentPeriodOptions} onchange={onActionInstallmentPeriod} disabled={isBusy}></lightning-combobox>
+                                <lightning-input type="number" min="1" step="1" label="Every N" value={actionInstallmentFrequency} onchange={onActionInstallmentFrequency} disabled={isBusy}></lightning-input>
+                            </div>
+                            <div class="warning-callout">{frequencyConfirmMessage}</div>
+                        </template>
+                        <template if:true={isGiftDateAction}>
+                            <lightning-combobox label="Day of month" value={actionDayOfMonth} options={dayOfMonthOptions} onchange={onActionDayOfMonth} disabled={isBusy} required></lightning-combobox>
+                            <div class="warning-callout">{giftDateConfirmMessage}</div>
+                        </template>
+                        <template if:true={isPaymentMethodAction}>
+                            <lightning-combobox label="Payment method" value={actionPaymentMethodId} options={paymentMethodSelectionOptions} onchange={onActionPaymentMethod} disabled={isBusy} required></lightning-combobox>
+                            <div class="schedule-actions slds-m-top_small">
+                                <lightning-button label="Add new card" onclick={openAddPaymentMethodForSubscription} disabled={isBusy}></lightning-button>
+                            </div>
+                        </template>
+                        <template if:true={isPauseAction}>
+                            <lightning-radio-group
+                                label="Pause"
+                                value={pauseMode}
+                                options={pauseModeOptions}
+                                onchange={onPauseMode}
+                                disabled={isBusy}>
+                            </lightning-radio-group>
+                            <template if:true={isPauseForGifts}>
+                                <lightning-combobox label="Number of installments to pause" value={pauseGiftCount} options={pauseGiftCountOptions} onchange={onPauseGiftCount} disabled={isBusy}></lightning-combobox>
+                            </template>
+                            <template if:true={isPauseUntilDate}>
+                                <lightning-input type="date" label="Resume on" value={pauseResumeDate} min={minimumPauseResumeDate} onchange={onPauseResumeDate} disabled={isBusy} required></lightning-input>
+                            </template>
+                            <div class="info-callout">Resumes {pauseResumeDateLabel}. No charges until then.</div>
+                        </template>
+                        <template if:true={isResumeAction}>
+                            <p>{resumeConfirmMessage}</p>
+                        </template>
+                        <template if:true={isCancelAction}>
+                            <lightning-combobox label="Reason (optional)" value={selectedCloseReason} options={closeReasonOptions} onchange={onSelectedCloseReason} disabled={isBusy}></lightning-combobox>
+                        </template>
+                        <footer class="schedule-footer">
+                            <lightning-button label="Cancel" onclick={closeActionPanel} disabled={isBusy}></lightning-button>
+                            <lightning-button label="Next" variant="brand" onclick={goConfirmAction} disabled={isBusy}></lightning-button>
+                        </footer>
+                    </div>
+                </template>
+
+                <template if:true={showConfirmStep}>
+                    <div class="schedule-card confirm-card">
+                        <h3>{actionConfirmTitle}</h3>
+                        <template if:true={actionWarningVisible}>
+                            <div class="confirm-icon warning-icon">!</div>
+                        </template>
+                        <template if:false={actionWarningVisible}>
+                            <div class="confirm-icon success-icon">&#10003;</div>
+                        </template>
+                        <p>{actionConfirmMessage}</p>
+                        <footer class="schedule-footer">
+                            <lightning-button label={confirmSecondaryLabel} onclick={backToUpdateAction} disabled={isBusy}></lightning-button>
+                            <lightning-button label={confirmPrimaryLabel} variant={confirmPrimaryVariant} onclick={confirmCurrentAction} disabled={isBusy}></lightning-button>
+                        </footer>
+                    </div>
+                </template>
+
+                <template if:true={showProcessingStep}>
+                    <div class="schedule-card processing-card">
+                        <lightning-spinner alternative-text="Updating the donation" size="medium"></lightning-spinner>
+                        <p>Updating the donation...</p>
+                        <p>Please wait.</p>
+                    </div>
+                </template>
+            </section>
+            </template>
+
+            <template if:true={shouldShowContactContext}>
+            <section class="section">
+                <div class="section-heading">
+                    <div>
+                        <h3>Existing Subscriptions</h3>
+                        <p>Current Stripe subscription state for this contact. Open the related recurring donation to make changes.</p>
+                    </div>
+                    <template if:true={hasCanceledSubscriptions}>
+                        <lightning-button
+                            label={canceledToggleLabel}
+                            onclick={toggleCanceledSubscriptions}
+                            disabled={isBusy}>
+                        </lightning-button>
+                    </template>
+                </div>
+
+                <template if:true={hasSubscriptions}>
+                    <div class="subscription-list">
+                        <template for:each={subscriptions} for:item="sub">
+                            <article key={sub.id} class="subscription-card">
+                                <div class="subscription-main">
+                                    <div class="subscription-summary">
+                                        <span class={sub.statusClass}>{sub.statusLabel}</span>
+                                        <h4>{sub.amountLabel}</h4>
+                                        <p>{sub.cadenceLabel} | {sub.lifecycleDateLabel}</p>
+                                        <p class="muted">{sub.id}</p>
+                                    </div>
+                                    <div class="subscription-actions">
+                                        <template if:true={sub.isActiveSubscription}>
+                                            <lightning-button data-subid={sub.id} label="Change Amount" onclick={openAmountAction} disabled={isBusy}></lightning-button>
+                                            <lightning-button data-subid={sub.id} label="Change Frequency" onclick={openFrequencyAction} disabled={isBusy}></lightning-button>
+                                            <template if:true={sub.canChangeBillingDate}>
+                                                <lightning-button data-subid={sub.id} label="Change Billing Date" onclick={openGiftDateAction} disabled={isBusy}></lightning-button>
+                                            </template>
+                                            <template if:true={sub.hasRecurringDonationLink}>
+                                                <lightning-button data-subid={sub.id} label="Set Fixed Gifts" onclick={openGiftCountAction} disabled={isBusy}></lightning-button>
+                                            </template>
+                                            <lightning-button data-subid={sub.id} label="Change Payment Method" onclick={openPaymentMethodAction} disabled={isBusy}></lightning-button>
+                                            <lightning-button data-subid={sub.id} label="Pause" onclick={openPauseAction} disabled={isBusy}></lightning-button>
+                                            <lightning-button data-subid={sub.id} label="Cancel" variant="destructive" onclick={openCancelAction} disabled={isBusy}></lightning-button>
+                                        </template>
+                                        <template if:true={sub.isTrialingSubscription}>
+                                            <lightning-button data-subid={sub.id} label="Change Amount" onclick={openAmountAction} disabled={isBusy}></lightning-button>
+                                            <lightning-button data-subid={sub.id} label="Change Payment Method" onclick={openPaymentMethodAction} disabled={isBusy}></lightning-button>
+                                            <lightning-button data-subid={sub.id} label="Cancel Trial and Charge Now" variant="brand" onclick={openEndTrialNowAction} disabled={isBusy}></lightning-button>
+                                            <lightning-button data-subid={sub.id} label="Pause" onclick={openPauseAction} disabled={isBusy}></lightning-button>
+                                            <lightning-button data-subid={sub.id} label="Cancel" variant="destructive" onclick={openCancelAction} disabled={isBusy}></lightning-button>
+                                        </template>
+                                        <template if:true={sub.isPaused}>
+                                            <lightning-button data-subid={sub.id} label="Resume" onclick={openResumeAction} disabled={isBusy}></lightning-button>
+                                            <lightning-button data-subid={sub.id} label="Cancel" variant="destructive" onclick={openCancelAction} disabled={isBusy}></lightning-button>
+                                        </template>
+                                        <template if:true={sub.hasRecurringDonationLink}>
+                                            <a class="record-link" href={sub.recurringDonationUrl} target="_blank" rel="noopener">Open Recurring Donation</a>
+                                        </template>
+                                        <template if:false={sub.hasRecurringDonationLink}>
+                                            <span class="inline-warning">No linked recurring donation</span>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                <template if:true={sub.showAmountAction}>
+                                    <div class="subscription-card slds-m-top_medium">
+                                        <div class="section-heading">
+                                            <div>
+                                                <h3>Change Amount</h3>
+                                                <p>New amount starting on the next scheduled gift date. No charge today.</p>
+                                            </div>
+                                        </div>
+                                        <lightning-input type="number" min="1" step="0.01" label="New Amount" value={actionAmount} onchange={onActionAmount} disabled={isBusy}></lightning-input>
+                                        <footer class="slds-m-top_medium">
+                                            <lightning-button label="Back" onclick={closeActionPanel} disabled={isBusy}></lightning-button>
+                                            <lightning-button class="slds-m-left_small" label="Save Amount" variant="brand" onclick={saveRecurringAmountChange} disabled={disableAmountSave}></lightning-button>
+                                        </footer>
+                                    </div>
+                                </template>
+
+                                <template if:true={sub.showFrequencyAction}>
+                                    <div class="subscription-card slds-m-top_medium">
+                                        <div class="section-heading">
+                                            <div>
+                                                <h3>Change Frequency</h3>
+                                                <p>{frequencyImmediateChargeWarning}</p>
+                                            </div>
+                                        </div>
+                                        <lightning-combobox label="Installment Period" value={actionInstallmentPeriod} options={installmentPeriodOptions} onchange={onActionInstallmentPeriod} disabled={isBusy}></lightning-combobox>
+                                        <lightning-input class="slds-m-top_small" type="number" min="1" step="1" label="Every N Periods" value={actionInstallmentFrequency} onchange={onActionInstallmentFrequency} disabled={isBusy}></lightning-input>
+                                        <footer class="slds-m-top_medium">
+                                            <lightning-button label="Back" onclick={closeActionPanel} disabled={isBusy}></lightning-button>
+                                            <lightning-button class="slds-m-left_small" label="Save Frequency" variant="brand" onclick={saveRecurringFrequencyChange} disabled={disableFrequencySave}></lightning-button>
+                                        </footer>
+                                    </div>
+                                </template>
+
+                                <template if:true={sub.showGiftDateAction}>
+                                    <div class="subscription-card slds-m-top_medium">
+                                        <div class="section-heading">
+                                            <div>
+                                                <h3>Change Billing Date</h3>
+                                                <p>{billingDateActionHelpText}</p>
+                                            </div>
+                                        </div>
+                                        <lightning-combobox label="Day of month" value={actionDayOfMonth} options={dayOfMonthOptions} onchange={onActionDayOfMonth} disabled={isBusy} required></lightning-combobox>
+                                        <div class="warning-callout slds-m-top_small">{giftDateConfirmMessage}</div>
+                                        <footer class="slds-m-top_medium">
+                                            <lightning-button label="Back" onclick={closeActionPanel} disabled={isBusy}></lightning-button>
+                                            <lightning-button class="slds-m-left_small" label="Save Billing Date" variant="brand" onclick={saveRecurringGiftDateChange} disabled={disableGiftDateSave}></lightning-button>
+                                        </footer>
+                                    </div>
+                                </template>
+
+                                <template if:true={sub.showPaymentMethodAction}>
+                                    <div class="subscription-card slds-m-top_medium">
+                                        <div class="section-heading">
+                                            <div>
+                                                <h3>Change Payment Method</h3>
+                                                <p>Select a saved card or add a new one and use it for this subscription.</p>
+                                            </div>
+                                        </div>
+                                        <lightning-combobox
+                                            label="Saved Payment Methods"
+                                            value={actionPaymentMethodId}
+                                            options={paymentMethodSelectionOptions}
+                                            onchange={onActionPaymentMethod}
+                                            disabled={isBusy}
+                                            required>
+                                        </lightning-combobox>
+                                        <div class="subscription-actions slds-m-top_small">
+                                            <lightning-button label="Add New Card" onclick={openAddPaymentMethodForSubscription} disabled={isBusy}></lightning-button>
+                                        </div>
+                                        <footer class="slds-m-top_medium">
+                                            <lightning-button label="Back" onclick={closeActionPanel} disabled={isBusy}></lightning-button>
+                                            <lightning-button class="slds-m-left_small" label="Save Payment Method" variant="brand" onclick={saveRecurringPaymentMethodChange} disabled={disablePaymentMethodSave}></lightning-button>
+                                        </footer>
+                                    </div>
+                                </template>
+
+                                <template if:true={sub.showGiftCountAction}>
+                                    <div class="subscription-card slds-m-top_medium">
+                                        <div class="section-heading">
+                                            <div>
+                                                <h3>Set Fixed Gifts</h3>
+                                                <p>Set how many total gifts this Stripe subscription should collect before ending automatically.</p>
+                                            </div>
+                                        </div>
+                                        <lightning-input type="number" min="1" step="1" label="Fixed Number of Gifts" value={actionInstallments} onchange={onActionInstallments} disabled={isBusy} required></lightning-input>
+                                        <footer class="slds-m-top_medium">
+                                            <lightning-button label="Back" onclick={closeActionPanel} disabled={isBusy}></lightning-button>
+                                            <lightning-button class="slds-m-left_small" label="Save Gift Count" variant="brand" onclick={saveRecurringGiftCountChange} disabled={disableGiftCountSave}></lightning-button>
+                                        </footer>
+                                    </div>
+                                </template>
+
+                                <template if:true={sub.showEndTrialNowAction}>
+                                    <div class="subscription-card slds-m-top_medium">
+                                        <div class="section-heading">
+                                            <div>
+                                                <h3>Cancel Trial and Charge Now</h3>
+                                                <p>This ends the Stripe trial immediately and asks Stripe to collect the first payment now.</p>
+                                            </div>
+                                        </div>
+                                        <footer class="slds-m-top_medium">
+                                            <lightning-button label="Back" onclick={closeActionPanel} disabled={isBusy}></lightning-button>
+                                            <lightning-button class="slds-m-left_small" label="Charge Now" variant="brand" onclick={confirmEndTrialNow} disabled={isBusy}></lightning-button>
+                                        </footer>
+                                    </div>
+                                </template>
+
+                                <template if:true={sub.showPauseAction}>
+                                    <div class="subscription-card slds-m-top_medium">
+                                        <div class="section-heading">
+                                            <div>
+                                                <h3>Pause Donation</h3>
+                                                <p>Pause this recurring donation until someone resumes it from the component.</p>
+                                            </div>
+                                        </div>
+                                        <lightning-combobox
+                                            label="Paused Reason"
+                                            value={selectedCloseReason}
+                                            options={closeReasonOptions}
+                                            onchange={onSelectedCloseReason}
+                                            required
+                                            disabled={isBusy}>
+                                        </lightning-combobox>
+                                        <footer class="slds-m-top_medium">
+                                            <lightning-button label="Back" onclick={closeActionPanel} disabled={isBusy}></lightning-button>
+                                            <lightning-button class="slds-m-left_small" label="Pause" variant="brand" onclick={confirmRecurringPause} disabled={disablePauseConfirm}></lightning-button>
+                                        </footer>
+                                    </div>
+                                </template>
+
+                                <template if:true={sub.showResumeAction}>
+                                    <div class="subscription-card slds-m-top_medium">
+                                        <div class="section-heading">
+                                            <div>
+                                                <h3>Resume Donation</h3>
+                                                <p>Resume this recurring donation and continue future charges.</p>
+                                            </div>
+                                        </div>
+                                        <footer class="slds-m-top_medium">
+                                            <lightning-button label="Back" onclick={closeActionPanel} disabled={isBusy}></lightning-button>
+                                            <lightning-button class="slds-m-left_small" label="Resume" variant="brand" onclick={confirmRecurringResume} disabled={isBusy}></lightning-button>
+                                        </footer>
+                                    </div>
+                                </template>
+
+                                <template if:true={sub.showCancelAction}>
+                                    <div class="subscription-card slds-m-top_medium">
+                                        <div class="section-heading">
+                                            <div>
+                                                <h3>Cancel Donation</h3>
+                                                <p>No future charges. The last successful gift remains in place.</p>
+                                            </div>
+                                        </div>
+                                        <lightning-combobox
+                                            label="Close Reason"
+                                            value={selectedCloseReason}
+                                            options={closeReasonOptions}
+                                            onchange={onSelectedCloseReason}
+                                            required
+                                            disabled={isBusy}>
+                                        </lightning-combobox>
+                                        <footer class="slds-m-top_medium">
+                                            <lightning-button label="Keep Donation" onclick={closeActionPanel} disabled={isBusy}></lightning-button>
+                                            <lightning-button class="slds-m-left_small" label="Cancel Donation" variant="destructive" onclick={confirmRecurringCancel} disabled={disableCancelConfirm}></lightning-button>
+                                        </footer>
+                                    </div>
+                                </template>
+
+                                <dl class="details">
+                                    <div><dt>Started</dt><dd>{sub.currentPeriodStartLabel}</dd></div>
+                                    <div><dt>Next Billing Date</dt><dd>{sub.currentPeriodEndLabel}</dd></div>
+                                    <div><dt>End Date</dt><dd>{sub.cancelAtLabel}</dd></div>
+                                    <div><dt>Gift Type</dt><dd>{sub.recurringType}</dd></div>
+                                    <div><dt>Gift Count</dt><dd>{sub.installments}</dd></div>
+                                    <div><dt>Cancel at Period End</dt><dd>{sub.cancelAtPeriodEnd}</dd></div>
+                                    <div><dt>Payment Method</dt><dd>{sub.defaultPaymentMethodDisplay}</dd></div>
+                                </dl>
+                            </article>
+                        </template>
+                    </div>
+                </template>
+
+                <template if:false={hasSubscriptions}>
+                    <div class="empty-state">No current Stripe subscriptions found for this customer.</div>
+                </template>
+            </section>
+            </template>
+            </template>
+
+        </div>
+    </lightning-card>
+
+    <template if:true={showCanceledSubscriptionsModal}>
+        <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open">
+            <div class="slds-modal__container slds-modal_large">
+                <header class="slds-modal__header">
+                    <h2 class="slds-text-heading_medium">Canceled Subscriptions</h2>
+                </header>
+                <div class="slds-modal__content slds-p-around_medium">
+                    <p class="modal-copy">Historical Stripe subscriptions. These cannot be resumed after cancellation.</p>
+                    <div class="subscription-list">
+                        <template for:each={canceledSubscriptions} for:item="sub">
+                            <article key={sub.id} class="subscription-card historical">
+                                <div class="subscription-main">
+                                    <div class="subscription-summary">
+                                        <span class={sub.statusClass}>{sub.statusLabel}</span>
+                                        <h4>{sub.amountLabel}</h4>
+                                        <p>{sub.cadenceLabel} | {sub.lifecycleDateLabel}</p>
+                                        <p class="muted">{sub.id}</p>
+                                    </div>
+                                    <div class="subscription-actions">
+                                        <template if:true={sub.hasRecurringDonationLink}>
+                                            <a class="record-link" href={sub.recurringDonationUrl} target="_blank" rel="noopener">Open Recurring Donation</a>
+                                        </template>
+                                    </div>
+                                </div>
+                                <dl class="details">
+                                    <div><dt>Started</dt><dd>{sub.currentPeriodStartLabel}</dd></div>
+                                    <div><dt>Period Ended</dt><dd>{sub.currentPeriodEndLabel}</dd></div>
+                                    <div><dt>Canceled</dt><dd>{sub.canceledAtLabel}</dd></div>
+                                    <div><dt>Payment Method</dt><dd>{sub.defaultPaymentMethodDisplay}</dd></div>
+                                </dl>
+                            </article>
+                        </template>
+                    </div>
+                </div>
+                <footer class="slds-modal__footer">
+                    <lightning-button label="Close" onclick={closeCanceledSubscriptionsModal} disabled={isBusy}></lightning-button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+
+    <template if:true={showCancelConfirm}>
+        <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open">
+            <div class="slds-modal__container">
+                <header class="slds-modal__header">
+                    <h2 class="slds-text-heading_medium">{cancelModalTitle}</h2>
+                </header>
+                <div class="slds-modal__content slds-p-around_medium">
+                    <p>{cancelModalMessage}</p>
+                    <lightning-combobox
+                        class="slds-m-top_medium"
+                        label="Close Reason"
+                        value={selectedCloseReason}
+                        options={closeReasonOptions}
+                        onchange={onSelectedCloseReason}
+                        required
+                        disabled={isBusy}>
+                    </lightning-combobox>
+                </div>
+                <footer class="slds-modal__footer">
+                    <lightning-button label="Keep Subscription" onclick={closeCancelConfirm} disabled={isBusy}></lightning-button>
+                    <lightning-button class="slds-m-left_small" label={cancelConfirmLabel} variant="destructive" onclick={confirmCancelSubscription} disabled={disableCancelConfirm}></lightning-button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+
+    <template if:true={showAddPaymentMethodModal}>
+        <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open">
+            <div class="slds-modal__container">
+                <header class="slds-modal__header">
+                    <h2 class="slds-text-heading_medium">Add Payment Method</h2>
+                </header>
+                <div class="slds-modal__content slds-p-around_medium">
+                    <p class="modal-copy">Card details are sent directly to Stripe. Billing address is prefilled from the Contact and can be changed for this card.</p>
+                    <div class="rd-pm-element">
+                        <div class="card-host" lwc:dom="manual"></div>
+                        <div class="address-host" lwc:dom="manual"></div>
+                    </div>
+                </div>
+                <footer class="slds-modal__footer">
+                    <lightning-button label="Cancel" onclick={closeAddPaymentMethod} disabled={isSavingCard}></lightning-button>
+                    <lightning-button class="slds-m-left_small" label="Save Card" variant="brand" onclick={handleSaveCard} disabled={isSavingCard}></lightning-button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+
+    <template if:true={showDeletePaymentMethodConfirm}>
+        <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open">
+            <div class="slds-modal__container">
+                <header class="slds-modal__header">
+                    <h2 class="slds-text-heading_medium">Remove Payment Method</h2>
+                </header>
+                <div class="slds-modal__content slds-p-around_medium">
+                    <p>This removes the saved card from the Stripe customer. Existing subscriptions using it may fail unless another payment method is selected.</p>
+                </div>
+                <footer class="slds-modal__footer">
+                    <lightning-button label="Keep Card" onclick={closePaymentMethodDeleteConfirm} disabled={isBusy}></lightning-button>
+                    <lightning-button class="slds-m-left_small" label="Remove Card" variant="destructive" onclick={confirmDeletePaymentMethod} disabled={isBusy}></lightning-button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+
+    <template if:true={pendingDefaultPaymentMethodId}>
+        <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open">
+            <div class="slds-modal__container">
+                <header class="slds-modal__header">
+                    <h2 class="slds-text-heading_medium">Set Default Payment Method</h2>
+                </header>
+                <div class="slds-modal__content slds-p-around_medium">
+                    <p>This will make the selected card the default payment method for the Stripe customer.</p>
+                </div>
+                <footer class="slds-modal__footer">
+                    <lightning-button label="Cancel" onclick={closeSetDefaultPaymentMethodConfirm} disabled={isBusy}></lightning-button>
+                    <lightning-button class="slds-m-left_small" label="Set Default" variant="brand" onclick={confirmSetDefaultPaymentMethod} disabled={isBusy}></lightning-button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+</template>

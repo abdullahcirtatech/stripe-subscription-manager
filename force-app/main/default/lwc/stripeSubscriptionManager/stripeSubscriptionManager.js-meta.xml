@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LightningComponentBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>66.0</apiVersion>
+    <isExposed>true</isExposed>
+    <masterLabel>Stripe Subscription Manager</masterLabel>
+    <targets>
+        <target>lightning__RecordAction</target>
+        <target>lightning__RecordPage</target>
+    </targets>
+    <targetConfigs>
+        <targetConfig targets="lightning__RecordAction">
+            <actionType>ScreenAction</actionType>
+            <objects>
+                <object>Contact</object>
+                <object>npe03__Recurring_Donation__c</object>
+            </objects>
+        </targetConfig>
+        <targetConfig targets="lightning__RecordPage">
+            <objects>
+                <object>Contact</object>
+                <object>npe03__Recurring_Donation__c</object>
+            </objects>
+            <property name="newDonationUrl" type="String" label="New Donation Signup URL" description="URL opened when Start a new donation is clicked on a closed recurring donation."/>
+            <property name="newDonationFlowApiName" type="String" label="New Donation Flow API Name" description="Optional Flow API name opened when Start a new donation is clicked and no URL is configured."/>
+        </targetConfig>
+    </targetConfigs>
+</LightningComponentBundle>
